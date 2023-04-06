@@ -739,6 +739,82 @@ function getPaginatedMultiRows() {
     }
 }
 
+function checkIndices() {
+
+    let tableName = arguments[0];
+    var fname = '';
+    var callback;
+    var where;
+
+    if (arguments.length === 3) {
+        fname = path.join(userData, tableName + '.json');
+        where = arguments[1];
+        callback = arguments[2];
+    } else if (arguments.length === 4) {
+        fname = path.join(arguments[1], arguments[0] + '.json');
+        where = arguments[2];
+        callback = arguments[3];
+    }
+
+    let exists = fs.existsSync(fname);
+    let whereKeys;
+
+    // Check if where is an object
+    if (Object.prototype.toString.call(where) === "[object Object]") {
+        // Check for number of keys
+        whereKeys = Object.keys(where);
+        if (whereKeys === 0) {
+            callback(false, "There are no arguments passed to the WHERE clause.");
+            return;
+        }
+    } else {
+        callback(false, "WHERE clause should be an object.");
+        return;
+    }
+
+    // Check if the json file exists, if it is, parse it.
+    if (exists) {
+        try {
+            let table = JSON.parse(fs.readFileSync(fname));
+            let rows = table[tableName];
+
+            let objs = [];
+
+            if (rows.length == 0) {
+                callback(true, { results: objs, checkEnd: true });
+                return
+            }
+
+            let index = -1;
+
+            let result = {
+                messagesCount: 0,
+                lastIndex: -1,
+            }
+
+            
+            let messages = rows.filter(function(item) {
+                index++;
+                if (item.senderId == where.firstUserId && item.receiverId == where.secondUserId || item.senderId == where.secondUserId && item.receiverId == where.firstUserId) {
+                    result.lastIndex = index;
+                    return true;
+                };
+            });
+
+            result.messagesCount = messages.length;
+
+            callback(true, result);
+            return;
+        } catch (e) {
+            callback(false, e.toString());
+            return;
+        }
+    } else {
+        callback(false, 'Table file does not exist!');
+        return;
+    }
+}
+
 /**
  * Check table existence
  * @param {String} dbName - Table name
@@ -802,6 +878,7 @@ module.exports = {
     getField,
     count,
     getPaginatedMultiRows,
+    checkIndices,
     tableExists,
     dropTable
 };
