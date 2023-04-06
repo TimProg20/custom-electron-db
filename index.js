@@ -611,10 +611,13 @@ function deleteRow() {
         let rows = table[tableName];
 
         if (rows.length > 0) {
-            let matched = 0;
+
             let matchedIndices = [];
 
             for (let i = 0; i < rows.length; i++) {
+                
+                let matched = 0;
+                
                 // Iterate throught the rows
                 for (var j = 0; j < whereKeys.length; j++) {
                     // Test if there is a matched key with where clause and single row of table
