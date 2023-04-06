@@ -14,7 +14,7 @@ const platform = os.platform();
 
 var appName = ''
 if (pack !== null) {
-    appName = (pack.productName ? pack.productName : pack.name);
+    appName = pack.name
 }
 
 let userData = '';
@@ -108,7 +108,6 @@ function valid() {
  * @param  {string} arguments[1] [Location of the database file] (Optional)
  * @param  {string} arguments[2] [Row object]
  * @param  {Function} arguments[3] [Callback function]
- * @returns {(number|undefined)} [ID of the inserted row]
  */
 // function insertTableContent(tableName, tableRow, callback) {
 function insertTableContent() {
@@ -143,8 +142,8 @@ function insertTableContent() {
 
             })
 
-            callback(true, "Object written successfully!");
-            return id;
+            callback(true, tableRow['id']);
+            return;
         } catch (e) {
             callback(false, "Error writing object.");
             return;
@@ -443,23 +442,27 @@ function updateRow() {
         let table = JSON.parse(fs.readFileSync(fname));
         let rows = table[tableName];
 
-        let matched = 0; // Number of matched complete where clause
         let matchedIndex = 0;
 
-        for (var i = 0; i < rows.length; i++) {
+        for (; matchedIndex < rows.length; matchedIndex++) {
 
-            for (var j = 0; j < whereKeys.length; j++) {
-                // Test if there is a matched key with where clause and single row of table
-                if (rows[i].hasOwnProperty(whereKeys[j])) {
-                    if (rows[i][whereKeys[j]] === where[whereKeys[j]]) {
+            let matched = 0;
+
+            for (let j = 0; j < whereKeys.length; j++) {
+
+                if (rows[matchedIndex].hasOwnProperty(whereKeys[j])) {
+                    if (rows[matchedIndex][whereKeys[j]] === where[whereKeys[j]]) {
                         matched++;
-                        matchedIndex = i;
                     }
                 }
             }
+
+            if (matched === whereKeys.length) {
+                break;
+            }
         }
 
-        if (matched === whereKeys.length) {
+        if (matchedIndex < rows.length) {
             // All field from where clause are present in this particular
             // row of the database table
             try {
@@ -618,9 +621,12 @@ function deleteRow() {
                     if (rows[i].hasOwnProperty(whereKeys[j])) {
                         if (rows[i][whereKeys[j]] === where[whereKeys[j]]) {
                             matched++;
-                            matchedIndices.push(i);
                         }
                     }
+                }
+
+                if (matched === whereKeys.length) {
+                    matchedIndices.push(i);
                 }
             }
 
@@ -629,9 +635,9 @@ function deleteRow() {
                 return;
             }
 
-            for (let k = 0; k < matchedIndices.length; k++) {
-                rows.splice(matchedIndices[k], 1);
-            }
+            rows = rows.filter(function(item, index) {
+                return !matchedIndices.includes(index);
+            });
 
             // Create a new object and pass the rows
             let obj = new Object();
@@ -660,6 +666,79 @@ function deleteRow() {
 
 }
 
+function getPaginatedMultiRows() {
+
+    let tableName = arguments[0];
+    var fname = '';
+    var callback;
+    var where;
+
+    if (arguments.length === 3) {
+        fname = path.join(userData, tableName + '.json');
+        where = arguments[1];
+        callback = arguments[2];
+    } else if (arguments.length === 4) {
+        fname = path.join(arguments[1], arguments[0] + '.json');
+        where = arguments[2];
+        callback = arguments[3];
+    }
+
+    let exists = fs.existsSync(fname);
+    let whereKeys;
+
+    // Check if where is an object
+    if (Object.prototype.toString.call(where) === "[object Object]") {
+        // Check for number of keys
+        whereKeys = Object.keys(where);
+        if (whereKeys === 0) {
+            callback(false, "There are no arguments passed to the WHERE clause.");
+            return;
+        }
+    } else {
+        callback(false, "WHERE clause should be an object.");
+        return;
+    }
+
+    // Check if the json file exists, if it is, parse it.
+    if (exists) {
+        try {
+            let table = JSON.parse(fs.readFileSync(fname));
+            let rows = table[tableName];
+
+            let objs = [];
+
+            if (rows.length == 0) {
+                callback(true, { results: objs, checkEnd: true });
+                return
+            }
+
+            let i = where.last;
+            let messagesCount = where.messagesCount;
+            let count = where.count;
+
+            for (; i >= 0 && messagesCount > 0 && count > 0; i--) {
+
+                if (rows[i].senderId == where.firstUserId && rows[i].receiverId == where.secondUserId || rows[i].senderId == where.secondUserId && rows[i].receiverId == where.firstUserId) {
+                    messagesCount--;
+                    count--;
+                    objs.push(rows[i]);
+                }
+            }
+
+            let checkEnd = (messagesCount <= 0);
+
+            callback(true, { results: objs, newLast: i, checkEnd: checkEnd, newMessagesCount: messagesCount});
+            return;
+        } catch (e) {
+            callback(false, e.toString());
+            return;
+        }
+    } else {
+        callback(false, 'Table file does not exist!');
+        return;
+    }
+}
+
 /**
  * Check table existence
  * @param {String} dbName - Table name
@@ -681,6 +760,34 @@ function tableExists() {
     return fs.existsSync(fName);
 }
 
+/**
+ * Check table existence
+ * @param {String} dbName - Table name
+ * @param {String} dbLocation - Table location path
+ */
+function dropTable() {
+    let fName = '';
+    if (arguments.length == 2) {
+        // Given the database name and location
+        let dbName = arguments[0];
+        let dbLocation = arguments[1];
+        fName = path.join(dbLocation, dbName + '.json');
+    } else if (arguments.length == 1) {
+        let dbName = arguments[0];
+        fName = path.join(userData, dbName + '.json');
+    }
+
+    fs.unlink(fName, (err) => {
+        if (err && err.code == "ENOENT") {
+            console.info("Error! File doesn't exist.");
+        } else if (err) {
+            console.error("Something went wrong. Please try again later.");
+        } else {
+            console.info(`Successfully removed file with the path of ${ fName }`);
+        }
+    });
+}
+
 // Export the public available functions
 module.exports = {
     createTable,
@@ -694,5 +801,7 @@ module.exports = {
     clearTable,
     getField,
     count,
-    tableExists
+    getPaginatedMultiRows,
+    tableExists,
+    dropTable
 };
